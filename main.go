@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 
 	"github.com/117503445/goutils"
@@ -201,9 +202,16 @@ func reverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// 如果启用日志，读取并打印响应body
+	// 检查是否为流式响应
+	contentType := resp.Header.Get("Content-Type")
+	isStreaming := contentType == "text/event-stream" ||
+		contentType == "application/x-ndjson" ||
+		resp.Header.Get("Transfer-Encoding") == "chunked" ||
+		strings.Contains(resp.Header.Get("Cache-Control"), "no-cache")
+
+	// 如果启用日志且不是流式响应，读取并打印响应body
 	var respBodyBytes []byte
-	if LOG_BODY {
+	if LOG_BODY && !isStreaming {
 		respBodyBytes, err = io.ReadAll(resp.Body)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to read response body for logging")
@@ -224,5 +232,12 @@ func reverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 
 	// 复制响应体
-	io.Copy(w, resp.Body)
+	if isStreaming {
+		// 对于流式响应，使用流式复制以支持实时数据传输
+		log.Debug().Str("content_type", contentType).Msg("Streaming response detected")
+		io.Copy(w, resp.Body)
+	} else {
+		// 对于普通响应，直接复制
+		io.Copy(w, resp.Body)
+	}
 }

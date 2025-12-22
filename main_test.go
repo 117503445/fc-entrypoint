@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -390,6 +392,393 @@ func TestReverseProxyHandlerWithLogging(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 	assert.Equal(t, `{"result": "success"}`, w.Body.String())
+}
+
+func TestReverseProxyHandlerStreaming(t *testing.T) {
+	// 创建一个模拟OpenAI API流式响应的测试服务器
+	streamData := `data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"gpt-3.5-turbo-0125","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"gpt-3.5-turbo-0125","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"gpt-3.5-turbo-0125","choices":[{"index":0,"delta":{"content":" World"},"finish_reason":null}]}
+
+data: [DONE]
+
+`
+
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 设置流式响应头
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+
+		// 模拟流式数据发送
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("Expected http.Flusher")
+			return
+		}
+
+		lines := strings.Split(streamData, "\n")
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			fmt.Fprintf(w, "%s\n", line)
+			flusher.Flush()
+			time.Sleep(10 * time.Millisecond) // 模拟流式延迟
+		}
+	}))
+	defer targetServer.Close()
+
+	// 创建支持流式的测试版本的reverse proxy handler
+	testStreamingProxyHandler := func(w http.ResponseWriter, r *http.Request) {
+		targetURL := targetServer.URL + r.URL.Path
+		if r.URL.RawQuery != "" {
+			targetURL += "?" + r.URL.RawQuery
+		}
+
+		req, err := http.NewRequest(r.Method, targetURL, r.Body)
+		if err != nil {
+			http.Error(w, "Failed to create request", http.StatusInternalServerError)
+			return
+		}
+
+		for key, values := range r.Header {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			http.Error(w, "Failed to forward request", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		// 检查是否为流式响应
+		contentType := resp.Header.Get("Content-Type")
+		isStreaming := contentType == "text/event-stream" ||
+			contentType == "application/x-ndjson" ||
+			resp.Header.Get("Transfer-Encoding") == "chunked" ||
+			strings.Contains(resp.Header.Get("Cache-Control"), "no-cache")
+
+		// 复制响应头
+		for key, values := range resp.Header {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+
+		// 设置状态码
+		w.WriteHeader(resp.StatusCode)
+
+		// 复制响应体
+		if isStreaming {
+			log.Debug().Str("content_type", contentType).Msg("Streaming response detected")
+			io.Copy(w, resp.Body)
+		} else {
+			io.Copy(w, resp.Body)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-3.5-turbo","messages":[{"role":"user","content":"Hello"}],"stream":true}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+
+	testStreamingProxyHandler(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
+	assert.Equal(t, "no-cache", w.Header().Get("Cache-Control"))
+
+	// 检查响应是否包含预期的流式数据
+	body := w.Body.String()
+	assert.Contains(t, body, "data:")
+	assert.Contains(t, body, "chat.completion.chunk")
+	assert.Contains(t, body, "Hello")
+	assert.Contains(t, body, "World")
+	assert.Contains(t, body, "[DONE]")
+}
+
+func TestReverseProxyHandlerApplicationNdjson(t *testing.T) {
+	// 测试 application/x-ndjson 格式的流式响应
+	ndjsonData := `{"id":"test-1","content":"First message"}
+{"id":"test-2","content":"Second message"}
+{"id":"test-3","content":"Third message"}
+`
+
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(ndjsonData))
+	}))
+	defer targetServer.Close()
+
+	// 创建测试版本的reverse proxy handler
+	testNdjsonProxyHandler := func(w http.ResponseWriter, r *http.Request) {
+		targetURL := targetServer.URL + r.URL.Path
+
+		req, err := http.NewRequest(r.Method, targetURL, r.Body)
+		if err != nil {
+			http.Error(w, "Failed to create request", http.StatusInternalServerError)
+			return
+		}
+
+		for key, values := range r.Header {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			http.Error(w, "Failed to forward request", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		// 检查是否为流式响应
+		contentType := resp.Header.Get("Content-Type")
+		isStreaming := contentType == "text/event-stream" ||
+			contentType == "application/x-ndjson" ||
+			resp.Header.Get("Transfer-Encoding") == "chunked" ||
+			strings.Contains(resp.Header.Get("Cache-Control"), "no-cache")
+
+		// 复制响应头
+		for key, values := range resp.Header {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+
+		// 设置状态码
+		w.WriteHeader(resp.StatusCode)
+
+		// 复制响应体
+		if isStreaming {
+			log.Debug().Str("content_type", contentType).Msg("Streaming response detected")
+			io.Copy(w, resp.Body)
+		} else {
+			io.Copy(w, resp.Body)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stream", nil)
+	w := httptest.NewRecorder()
+
+	testNdjsonProxyHandler(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/x-ndjson", w.Header().Get("Content-Type"))
+	assert.Equal(t, ndjsonData, w.Body.String())
+}
+
+func TestOpenAIStreamingIntegration(t *testing.T) {
+	// 模拟OpenAI聊天完成API的流式响应
+	openaiStreamResponse := `data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"content":"Hello!"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"content":" How"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"content":" can"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"content":" I"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"content":" help"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"content":" you"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"content":"?"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+`
+
+	// 创建模拟OpenAI API服务器
+	openaiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 检查请求是否正确
+		assert.Equal(t, "/v1/chat/completions", r.URL.Path)
+		assert.Equal(t, "POST", r.Method)
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		// 设置OpenAI风格的响应头
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.WriteHeader(http.StatusOK)
+
+		// 发送流式响应
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("Expected http.Flusher")
+			return
+		}
+
+		// 逐行发送数据以模拟真实的流式响应
+		lines := strings.Split(openaiStreamResponse, "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				fmt.Fprintln(w, line)
+				flusher.Flush()
+				time.Sleep(5 * time.Millisecond) // 模拟网络延迟
+			}
+		}
+	}))
+	defer openaiServer.Close()
+
+	// 创建测试版本的reverse proxy handler，指向我们的模拟服务器
+	testOpenAIProxyHandler := func(w http.ResponseWriter, r *http.Request) {
+		targetURL := openaiServer.URL + r.URL.Path
+		if r.URL.RawQuery != "" {
+			targetURL += "?" + r.URL.RawQuery
+		}
+
+		// 如果启用日志，读取并打印请求body
+		var reqBodyBytes []byte
+		var err error
+		if LOG_BODY && r.Body != nil {
+			reqBodyBytes, err = io.ReadAll(r.Body)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to read request body for logging")
+			} else {
+				log.Info().Str("request_body", string(reqBodyBytes)).Msg("Forwarding request body")
+			}
+			r.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
+		}
+
+		req, err := http.NewRequest(r.Method, targetURL, r.Body)
+		if err != nil {
+			http.Error(w, "Failed to create request", http.StatusInternalServerError)
+			return
+		}
+
+		// 复制请求头
+		for key, values := range r.Header {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			http.Error(w, "Failed to forward request", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		// 检查是否为流式响应
+		contentType := resp.Header.Get("Content-Type")
+		isStreaming := contentType == "text/event-stream" ||
+			contentType == "application/x-ndjson" ||
+			resp.Header.Get("Transfer-Encoding") == "chunked" ||
+			strings.Contains(resp.Header.Get("Cache-Control"), "no-cache")
+
+		// 如果启用日志且不是流式响应，读取并打印响应body
+		var respBodyBytes []byte
+		if LOG_BODY && !isStreaming {
+			respBodyBytes, err = io.ReadAll(resp.Body)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to read response body for logging")
+			} else {
+				log.Info().Str("response_body", string(respBodyBytes)).Msg("Received response body")
+			}
+			resp.Body = io.NopCloser(bytes.NewReader(respBodyBytes))
+		}
+
+		// 复制响应头
+		for key, values := range resp.Header {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+
+		// 设置状态码
+		w.WriteHeader(resp.StatusCode)
+
+		// 复制响应体
+		if isStreaming {
+			log.Debug().Str("content_type", contentType).Msg("Streaming response detected")
+			io.Copy(w, resp.Body)
+		} else {
+			io.Copy(w, resp.Body)
+		}
+	}
+
+	// 模拟OpenAI API请求
+	requestBody := `{
+		"model": "gpt-3.5-turbo",
+		"messages": [
+			{
+				"role": "user",
+				"content": "Hello, how can you help me?"
+			}
+		],
+		"stream": true
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer sk-test")
+
+	w := httptest.NewRecorder()
+
+	// 启用LOG_BODY以测试日志功能
+	originalLogBody := LOG_BODY
+	LOG_BODY = true
+	defer func() { LOG_BODY = originalLogBody }()
+
+	testOpenAIProxyHandler(w, req)
+
+	// 验证响应
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
+	assert.Equal(t, "no-cache", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
+
+	// 验证流式响应内容
+	body := w.Body.String()
+
+	// 检查是否包含预期的OpenAI流式响应格式
+	assert.Contains(t, body, "data:")
+	assert.Contains(t, body, "chat.completion.chunk")
+	assert.Contains(t, body, "Hello!")
+	assert.Contains(t, body, "How")
+	assert.Contains(t, body, "can")
+	assert.Contains(t, body, "I")
+	assert.Contains(t, body, "help")
+	assert.Contains(t, body, "you")
+	assert.Contains(t, body, "[DONE]")
+
+	// 验证JSON结构
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "data: ") && line != "data: [DONE]" {
+			jsonStr := strings.TrimPrefix(line, "data: ")
+			var chunk map[string]interface{}
+			err := json.Unmarshal([]byte(jsonStr), &chunk)
+			assert.NoError(t, err, "Invalid JSON in stream chunk: %s", jsonStr)
+
+			// 验证OpenAI响应结构
+			assert.Contains(t, chunk, "id")
+			assert.Contains(t, chunk, "object")
+			assert.Contains(t, chunk, "created")
+			assert.Contains(t, chunk, "model")
+			assert.Contains(t, chunk, "choices")
+		}
+	}
 }
 
 func TestIntegration(t *testing.T) {
