@@ -96,6 +96,8 @@ func handleCreateProcess(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleListProcesses(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	processesMu.RLock()
 	defer processesMu.RUnlock()
 

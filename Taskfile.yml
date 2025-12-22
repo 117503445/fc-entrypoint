@@ -10,3 +10,7 @@ tasks:
     run: once
     cmds:
       - clear
+  test:
+    deps: [pre]
+    cmds:
+      - go test . -v
