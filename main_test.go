@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,8 +17,7 @@ import (
 func setupTest(t *testing.T) {
 	// 重置全局变量
 	processesMu.Lock()
-	processes = make(map[int64]*Process)
-	nextProcessID = 0
+	processes = []*Process{}
 	processesMu.Unlock()
 }
 
@@ -99,8 +97,7 @@ func TestHandleListProcesses(t *testing.T) {
 	process2 := &Process{ID: 2, Command: "echo test2", WorkingDir: "/home", Status: "running"}
 
 	processesMu.Lock()
-	processes[1] = process1
-	processes[2] = process2
+	processes = append(processes, process1, process2)
 	processesMu.Unlock()
 
 	req := httptest.NewRequest(http.MethodGet, "/_entrypoint/processes", nil)
@@ -216,6 +213,9 @@ func TestExecuteProcess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// 为每个子测试重置状态
+			setupTest(t)
+
 			process := &Process{
 				ID:         1,
 				Command:    tt.command,
@@ -224,13 +224,14 @@ func TestExecuteProcess(t *testing.T) {
 			}
 
 			processesMu.Lock()
-			processes[process.ID] = process
+			processes = append(processes, process)
 			processesMu.Unlock()
 
 			executeProcess(process)
 
 			processesMu.RLock()
-			updatedProcess := processes[process.ID]
+			// 现在只有一个进程，它在索引0处
+			updatedProcess := processes[0]
 			processesMu.RUnlock()
 
 			if tt.expectError {
@@ -470,17 +471,15 @@ echo "Entrypoint done"
 
 	// 测试版本的 startEntrypointProcess 函数
 	testStartEntrypointProcess := func() {
-		id := atomic.AddInt64(&nextProcessID, 1)
-
+		processesMu.Lock()
+		id := int64(len(processes) + 1)
 		process := &Process{
 			ID:         id,
 			Command:    entrypointPath,
 			WorkingDir: "/",
 			Status:     "running",
 		}
-
-		processesMu.Lock()
-		processes[id] = process
+		processes = append(processes, process)
 		processesMu.Unlock()
 
 		// 异步执行命令
@@ -497,7 +496,11 @@ echo "Entrypoint done"
 
 	// 检查进程是否被创建并完成
 	processesMu.RLock()
-	process, exists := processes[1]
+	var process *Process
+	exists := len(processes) > 0
+	if exists {
+		process = processes[0] // 第一个进程
+	}
 	processesMu.RUnlock()
 
 	assert.True(t, exists, "Entrypoint process should be created")

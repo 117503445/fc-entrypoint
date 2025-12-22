@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"sync"
-	"sync/atomic"
 
 	"github.com/117503445/goutils"
 	"github.com/rs/zerolog/log"
@@ -30,10 +29,9 @@ type Process struct {
 }
 
 var (
-	processes     = make(map[int64]*Process)
-	processesMu   sync.RWMutex
-	nextProcessID int64
-	LOG_BODY      = true
+	processes   []*Process
+	processesMu sync.RWMutex
+	LOG_BODY    = true
 )
 
 func main() {
@@ -61,17 +59,15 @@ func main() {
 }
 
 func startEntrypointProcess() {
-	id := atomic.AddInt64(&nextProcessID, 1)
-
+	processesMu.Lock()
+	id := int64(len(processes) + 1)
 	process := &Process{
 		ID:         id,
 		Command:    "/entrypoint.sh",
 		WorkingDir: "/",
 		Status:     "running",
 	}
-
-	processesMu.Lock()
-	processes[id] = process
+	processes = append(processes, process)
 	processesMu.Unlock()
 
 	// 异步执行命令
@@ -105,17 +101,15 @@ func handleCreateProcess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := atomic.AddInt64(&nextProcessID, 1)
-
+	processesMu.Lock()
+	id := int64(len(processes) + 1)
 	process := &Process{
 		ID:         id,
 		Command:    req.Command,
 		WorkingDir: req.WorkingDir,
 		Status:     "running",
 	}
-
-	processesMu.Lock()
-	processes[id] = process
+	processes = append(processes, process)
 	processesMu.Unlock()
 
 	// 异步执行命令
@@ -131,10 +125,8 @@ func handleListProcesses(w http.ResponseWriter, r *http.Request) {
 	processesMu.RLock()
 	defer processesMu.RUnlock()
 
-	processList := make([]*Process, 0, len(processes))
-	for _, p := range processes {
-		processList = append(processList, p)
-	}
+	processList := make([]*Process, len(processes))
+	copy(processList, processes)
 
 	json.NewEncoder(w).Encode(processList)
 }
