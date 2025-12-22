@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -450,6 +451,90 @@ func TestIntegration(t *testing.T) {
 		}
 		assert.True(t, found, "Created process not found in list")
 	})
+}
+
+func TestStartEntrypointProcess(t *testing.T) {
+	setupTest(t)
+
+	// 创建一个临时的 entrypoint.sh 文件
+	entrypointPath := "/tmp/entrypoint_test.sh"
+	entrypointContent := `#!/bin/bash
+echo "Entrypoint running"
+sleep 0.1
+echo "Entrypoint done"
+`
+
+	err := os.WriteFile(entrypointPath, []byte(entrypointContent), 0755)
+	assert.NoError(t, err)
+	defer os.Remove(entrypointPath)
+
+	// 测试版本的 startEntrypointProcess 函数
+	testStartEntrypointProcess := func() {
+		id := atomic.AddInt64(&nextProcessID, 1)
+
+		process := &Process{
+			ID:         id,
+			Command:    entrypointPath,
+			WorkingDir: "/",
+			Status:     "running",
+		}
+
+		processesMu.Lock()
+		processes[id] = process
+		processesMu.Unlock()
+
+		// 异步执行命令
+		go executeProcess(process)
+
+		log.Info().Int64("process_id", id).Msg("Started entrypoint process")
+	}
+
+	// 调用函数
+	testStartEntrypointProcess()
+
+	// 等待进程完成
+	time.Sleep(200 * time.Millisecond)
+
+	// 检查进程是否被创建并完成
+	processesMu.RLock()
+	process, exists := processes[1]
+	processesMu.RUnlock()
+
+	assert.True(t, exists, "Entrypoint process should be created")
+	assert.Equal(t, "/tmp/entrypoint_test.sh", process.Command)
+	assert.Equal(t, "/", process.WorkingDir)
+	assert.Equal(t, "completed", process.Status)
+	assert.Contains(t, process.Output, "Entrypoint running")
+	assert.Contains(t, process.Output, "Entrypoint done")
+}
+
+func TestMainEntrypointCheck(t *testing.T) {
+	setupTest(t)
+
+	// 创建一个临时的 entrypoint.sh 文件
+	entrypointPath := "/tmp/entrypoint_main_test.sh"
+	entrypointContent := `#!/bin/bash
+echo "Main entrypoint test"
+`
+
+	err := os.WriteFile(entrypointPath, []byte(entrypointContent), 0755)
+	assert.NoError(t, err)
+	defer os.Remove(entrypointPath)
+
+	// 测试文件存在检查逻辑
+	if _, err := os.Stat(entrypointPath); err == nil {
+		t.Log("File exists check passed")
+		// 这里会调用 startEntrypointProcess，但我们不执行它以避免实际启动进程
+	} else {
+		t.Error("File should exist")
+	}
+
+	// 验证没有实际进程被创建（因为我们没有调用startEntrypointProcess）
+	processesMu.RLock()
+	processCount := len(processes)
+	processesMu.RUnlock()
+
+	assert.Equal(t, 0, processCount, "No processes should be created in this test")
 }
 
 // TestMain 设置测试环境

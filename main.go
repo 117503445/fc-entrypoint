@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -38,6 +39,14 @@ var (
 func main() {
 	goutils.InitZeroLog()
 
+	// 检查并启动 entrypoint.sh 进程
+	if _, err := os.Stat("/entrypoint.sh"); err == nil {
+		log.Info().Msg("Found /entrypoint.sh, starting as process")
+		startEntrypointProcess()
+	} else {
+		log.Info().Msg("/entrypoint.sh not found, skipping")
+	}
+
 	// 设置路由
 	http.HandleFunc("/_entrypoint/processes", handleProcesses)
 	http.HandleFunc("/_entrypoint/processes/", handleProcesses)
@@ -49,6 +58,26 @@ func main() {
 	if err := http.ListenAndServe(":9000", nil); err != nil {
 		log.Fatal().Err(err).Msg("Server failed to start")
 	}
+}
+
+func startEntrypointProcess() {
+	id := atomic.AddInt64(&nextProcessID, 1)
+
+	process := &Process{
+		ID:         id,
+		Command:    "/entrypoint.sh",
+		WorkingDir: "/",
+		Status:     "running",
+	}
+
+	processesMu.Lock()
+	processes[id] = process
+	processesMu.Unlock()
+
+	// 异步执行命令
+	go executeProcess(process)
+
+	log.Info().Int64("process_id", id).Msg("Started entrypoint process")
 }
 
 func handleProcesses(w http.ResponseWriter, r *http.Request) {
