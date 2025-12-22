@@ -1,0 +1,12 @@
+version: '3'
+
+tasks:
+  default:
+    desc: "The default task" 
+    deps: [pre]
+    cmds:
+      - go run .
+  pre:
+    run: once
+    cmds:
+      - clear
