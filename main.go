@@ -32,6 +32,7 @@ var (
 	processes     = make(map[int64]*Process)
 	processesMu   sync.RWMutex
 	nextProcessID int64
+	LOG_BODY      = true
 )
 
 func main() {
@@ -143,6 +144,19 @@ func reverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 		targetURL += "?" + r.URL.RawQuery
 	}
 
+	// 如果启用日志，读取并打印请求body
+	var reqBodyBytes []byte
+	var err error
+	if LOG_BODY && r.Body != nil {
+		reqBodyBytes, err = io.ReadAll(r.Body)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to read request body for logging")
+		} else {
+			log.Info().Str("request_body", string(reqBodyBytes)).Msg("Forwarding request body")
+		}
+		r.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
+	}
+
 	// 创建新的请求
 	req, err := http.NewRequest(r.Method, targetURL, r.Body)
 	if err != nil {
@@ -165,6 +179,18 @@ func reverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+
+	// 如果启用日志，读取并打印响应body
+	var respBodyBytes []byte
+	if LOG_BODY {
+		respBodyBytes, err = io.ReadAll(resp.Body)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to read response body for logging")
+		} else {
+			log.Info().Str("response_body", string(respBodyBytes)).Msg("Received response body")
+		}
+		resp.Body = io.NopCloser(bytes.NewReader(respBodyBytes))
+	}
 
 	// 复制响应头
 	for key, values := range resp.Header {

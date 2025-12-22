@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -297,6 +299,95 @@ func TestReverseProxyHandler(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "proxied", w.Header().Get("X-Test"))
 	assert.Equal(t, "proxied response", w.Body.String())
+}
+
+func TestReverseProxyHandlerWithLogging(t *testing.T) {
+	// 临时启用 LOG_BODY
+	originalLogBody := LOG_BODY
+	LOG_BODY = true
+	defer func() { LOG_BODY = originalLogBody }()
+
+	// 创建一个测试服务器来模拟目标服务器
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"result": "success"}`))
+	}))
+	defer targetServer.Close()
+
+	// 创建一个支持日志的测试版本的reverse proxy handler
+	testReverseProxyHandler := func(w http.ResponseWriter, r *http.Request) {
+		targetURL := targetServer.URL + r.URL.Path
+		if r.URL.RawQuery != "" {
+			targetURL += "?" + r.URL.RawQuery
+		}
+
+		// 如果启用日志，读取并打印请求body
+		var reqBodyBytes []byte
+		var err error
+		if LOG_BODY && r.Body != nil {
+			reqBodyBytes, err = io.ReadAll(r.Body)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to read request body for logging")
+			} else {
+				log.Info().Str("request_body", string(reqBodyBytes)).Msg("Forwarding request body")
+			}
+			r.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
+		}
+
+		req, err := http.NewRequest(r.Method, targetURL, r.Body)
+		if err != nil {
+			http.Error(w, "Failed to create request", http.StatusInternalServerError)
+			return
+		}
+
+		for key, values := range r.Header {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			http.Error(w, "Failed to forward request", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		// 如果启用日志，读取并打印响应body
+		var respBodyBytes []byte
+		if LOG_BODY {
+			respBodyBytes, err = io.ReadAll(resp.Body)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to read response body for logging")
+			} else {
+				log.Info().Str("response_body", string(respBodyBytes)).Msg("Received response body")
+			}
+			resp.Body = io.NopCloser(bytes.NewReader(respBodyBytes))
+		}
+
+		for key, values := range resp.Header {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	}
+
+	// 测试带请求体的POST请求
+	reqBody := `{"action": "test", "data": "sample"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/test", bytes.NewReader([]byte(reqBody)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	testReverseProxyHandler(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	assert.Equal(t, `{"result": "success"}`, w.Body.String())
 }
 
 func TestIntegration(t *testing.T) {
