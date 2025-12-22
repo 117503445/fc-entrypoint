@@ -139,8 +139,13 @@ func executeProcess(process *Process) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+
+	// 创建同时写入缓冲区和日志的writer
+	stdoutWriter := io.MultiWriter(&stdout, &logWriter{prefix: fmt.Sprintf("[process:%d:stdout] ", process.ID), level: "info"})
+	stderrWriter := io.MultiWriter(&stderr, &logWriter{prefix: fmt.Sprintf("[process:%d:stderr] ", process.ID), level: "error"})
+
+	cmd.Stdout = stdoutWriter
+	cmd.Stderr = stderrWriter
 
 	err := cmd.Run()
 
@@ -157,6 +162,31 @@ func executeProcess(process *Process) {
 		process.Status = "completed"
 		log.Info().Int64("process_id", process.ID).Msg("Process completed")
 	}
+}
+
+// logWriter 是一个自定义的writer，用于实时输出进程日志
+type logWriter struct {
+	prefix string
+	level  string
+}
+
+func (w *logWriter) Write(p []byte) (n int, err error) {
+	// 移除末尾的换行符，避免日志重复换行
+	line := strings.TrimRight(string(p), "\n")
+	if line == "" {
+		return len(p), nil
+	}
+
+	switch w.level {
+	case "info":
+		log.Info().Str("output", w.prefix+line).Msg("Process output")
+	case "error":
+		log.Error().Str("output", w.prefix+line).Msg("Process error")
+	default:
+		log.Info().Str("output", w.prefix+line).Msg("Process output")
+	}
+
+	return len(p), nil
 }
 
 func reverseProxyHandler(w http.ResponseWriter, r *http.Request) {

@@ -929,6 +929,44 @@ echo "Main entrypoint test"
 	assert.Equal(t, 0, processCount, "No processes should be created in this test")
 }
 
+func TestProcessOutputLogging(t *testing.T) {
+	setupTest(t)
+
+	// 测试多行输出的进程
+	process := &Process{
+		ID:         1,
+		Command:    "echo 'Line 1'; echo 'Line 2'; echo 'Error message' >&2; echo 'Line 3'",
+		WorkingDir: "",
+		Status:     "running",
+	}
+
+	processesMu.Lock()
+	processes = append(processes, process)
+	processesMu.Unlock()
+
+	executeProcess(process)
+
+	processesMu.RLock()
+	result := processes[0]
+	processesMu.RUnlock()
+
+	// 验证进程状态
+	assert.Equal(t, "completed", result.Status)
+
+	// 验证输出内容被保存
+	assert.Contains(t, result.Output, "Line 1")
+	assert.Contains(t, result.Output, "Line 2")
+	assert.Contains(t, result.Output, "Line 3")
+	assert.Contains(t, result.Error, "Error message")
+
+	// 验证输出被正确分割（每行都有前缀）
+	outputLines := strings.Split(strings.TrimSpace(result.Output), "\n")
+	assert.Len(t, outputLines, 3)
+	for _, line := range outputLines {
+		assert.Contains(t, line, "Line ")
+	}
+}
+
 // TestMain 设置测试环境
 func TestMain(m *testing.M) {
 	// 设置测试前的初始化
