@@ -54,7 +54,7 @@ func main() {
 	http.HandleFunc("/", reverseProxyHandler)
 
 	log.Info().Msg("Starting server on :9000")
-	if err := http.ListenAndServe(":9000", nil); err != nil {
+	if err := http.ListenAndServe("0.0.0.0:9000", nil); err != nil {
 		log.Fatal().Err(err).Msg("Server failed to start")
 	}
 }
