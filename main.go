@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/117503445/goutils"
 	"github.com/rs/zerolog/log"
@@ -35,17 +37,21 @@ var (
 	LOG_BODY    = true
 )
 
-func main() {
-	goutils.InitZeroLog()
+// checkPort 检查指定端口是否被监听
+func checkPort(port int) bool {
+	log.Info().Msg("Checking port 8000 is available...")
 
-	// 检查并启动 entrypoint.sh 进程
-	if _, err := os.Stat("/entrypoint.sh"); err == nil {
-		log.Info().Msg("Found /entrypoint.sh, starting as process")
-		startEntrypointProcess()
-	} else {
-		log.Info().Msg("/entrypoint.sh not found, skipping")
+	address := fmt.Sprintf("localhost:%d", port)
+	conn, err := net.DialTimeout("tcp", address, time.Second*1)
+	if err != nil {
+		return false
 	}
+	conn.Close()
+	return true
+}
 
+// setupAndStartServer 设置路由并启动9000端口服务
+func setupAndStartServer() {
 	// 设置路由
 	http.HandleFunc("/_entrypoint/processes", handleProcesses)
 	http.HandleFunc("/_entrypoint/processes/", handleProcesses)
@@ -59,13 +65,50 @@ func main() {
 	}
 }
 
-func startEntrypointProcess() {
+// waitForPort8000AndStartServer 等待8000端口被监听，然后启动9000端口服务
+func waitForPort8000AndStartServer() {
+	for {
+		if checkPort(8000) {
+			log.Info().Msg("Port 8000 is now available, starting server on :9000")
+			break
+		}
+		time.Sleep(time.Second)
+	}
+
+	setupAndStartServer()
+}
+
+func main() {
+	goutils.InitZeroLog()
+
+	// 读取开关环境变量，默认为打开
+
+	isWaitForPort8000 := os.Getenv("SKIP_WAIT_FOR_PORT_8000") != ""
+	if isWaitForPort8000 {
+		go waitForPort8000AndStartServer()
+	} else {
+		go setupAndStartServer()
+	}
+
+	// 检查并启动 entrypoint.sh 进程
+	if _, err := os.Stat("/entrypoint.sh"); err == nil {
+		log.Info().Msg("Found /entrypoint.sh, starting as process")
+		startEntrypointProcess()
+	} else {
+		log.Info().Msg("/entrypoint.sh not found, skipping")
+	}
+
+	select {}
+}
+
+// createProcess 创建并启动一个新进程
+func createProcess(command, workingDir string) int64 {
 	processesMu.Lock()
 	id := int64(len(processes) + 1)
 	process := &Process{
 		ID:         id,
-		Command:    "/entrypoint.sh",
-		WorkingDir: "/",
+		Command:    command,
+		WorkingDir: workingDir,
 		Status:     "running",
 	}
 	processes = append(processes, process)
@@ -74,6 +117,11 @@ func startEntrypointProcess() {
 	// 异步执行命令
 	go executeProcess(process)
 
+	return id
+}
+
+func startEntrypointProcess() {
+	id := createProcess("/entrypoint.sh", "/")
 	log.Info().Int64("process_id", id).Msg("Started entrypoint process")
 }
 
@@ -102,20 +150,7 @@ func handleCreateProcess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	processesMu.Lock()
-	id := int64(len(processes) + 1)
-	process := &Process{
-		ID:         id,
-		Command:    req.Command,
-		WorkingDir: req.WorkingDir,
-		Status:     "running",
-	}
-	processes = append(processes, process)
-	processesMu.Unlock()
-
-	// 异步执行命令
-	go executeProcess(process)
-
+	id := createProcess(req.Command, req.WorkingDir)
 	response := map[string]int64{"id": id}
 	json.NewEncoder(w).Encode(response)
 }
@@ -147,6 +182,7 @@ func executeProcess(process *Process) {
 	cmd.Stdout = stdoutWriter
 	cmd.Stderr = stderrWriter
 
+	// 执行命令
 	err := cmd.Run()
 
 	processesMu.Lock()

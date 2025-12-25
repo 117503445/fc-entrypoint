@@ -929,6 +929,44 @@ echo "Main entrypoint test"
 	assert.Equal(t, 0, processCount, "No processes should be created in this test")
 }
 
+func TestCheckPort(t *testing.T) {
+	// 测试未被监听的端口
+	assert.False(t, checkPort(9999))
+
+	// 启动一个测试服务器在9998端口
+	server := &http.Server{Addr: ":9998"}
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("Test server failed")
+		}
+	}()
+	defer server.Close()
+
+	// 等待服务器启动
+	time.Sleep(100 * time.Millisecond)
+
+	// 测试被监听的端口
+	assert.True(t, checkPort(9998))
+}
+
+func TestWaitForPort8000Switch(t *testing.T) {
+	// 测试开关默认值为true
+	os.Unsetenv("WAIT_FOR_PORT_8000")
+	waitForPort8000 := os.Getenv("WAIT_FOR_PORT_8000")
+	if waitForPort8000 == "" {
+		waitForPort8000 = "true"
+	}
+	assert.Equal(t, "true", waitForPort8000)
+
+	// 测试开关设置为false
+	os.Setenv("WAIT_FOR_PORT_8000", "false")
+	waitForPort8000 = os.Getenv("WAIT_FOR_PORT_8000")
+	assert.Equal(t, "false", waitForPort8000)
+
+	// 清理环境变量
+	os.Unsetenv("WAIT_FOR_PORT_8000")
+}
+
 func TestProcessOutputLogging(t *testing.T) {
 	setupTest(t)
 
