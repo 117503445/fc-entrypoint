@@ -76,8 +76,8 @@ func handleCreateProcess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := createProcess(req.Command, req.WorkingDir)
-	response := map[string]int64{"id": id}
+	id := createProcess(req)
+	response := map[string]string{"id": id}
 	json.NewEncoder(w).Encode(response)
 }
 

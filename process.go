@@ -4,58 +4,73 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 
 	"github.com/rs/zerolog/log"
 )
 
 var (
-	processes   []*Process
-	processesMu sync.RWMutex
+	processes      []*Process
+	processesMu    sync.RWMutex
+	processCounter int64
 )
 
-// createProcess 创建并启动一个新进程
-func createProcess(command, workingDir string) int64 {
+// getDirData returns the data directory from DIR_DATA env or default "./data"
+func getDirData() string {
+	dir := os.Getenv("DIR_DATA")
+	if dir == "" {
+		dir = "./data"
+	}
+	return dir
+}
+
+// shouldCleanup returns whether to cleanup process directories after execution
+func shouldCleanup() bool {
+	cleanup := os.Getenv("CLEANUP_PROCESS_DIR")
+	// Default to true if not set
+	return cleanup != "false"
+}
+
+// createProcess creates and starts a new process
+func createProcess(req ProcessRequest) string {
 	processesMu.Lock()
-	id := int64(len(processes) + 1)
+	processCounter++
+	id := fmt.Sprintf("%s_%d", GetInstanceID(), processCounter)
 	process := &Process{
 		ID:         id,
-		Command:    command,
-		WorkingDir: workingDir,
+		Command:    req.Command,
+		WorkingDir: req.WorkingDir,
+		Image:      req.Image,
 		Status:     "running",
 	}
 	processes = append(processes, process)
 	processesMu.Unlock()
 
-	// 异步执行命令
-	go executeProcess(process)
+	// Execute command asynchronously
+	go executeProcess(process, req.ImageUsername, req.ImagePassword)
 
 	return id
 }
 
 func startEntrypointProcess(entrypointPath string) {
-	id := createProcess(entrypointPath, "/")
-	log.Info().Int64("process_id", id).Str("path", entrypointPath).Msg("Started entrypoint process")
+	id := createProcess(ProcessRequest{Command: entrypointPath, WorkingDir: "/"})
+	log.Info().Str("process_id", id).Str("path", entrypointPath).Msg("Started entrypoint process")
 }
 
-func executeProcess(process *Process) {
-	cmd := exec.Command("sh", "-c", process.Command)
-	if process.WorkingDir != "" {
-		cmd.Dir = process.WorkingDir
-	}
-
+func executeProcess(process *Process, username, password string) {
 	var stdout, stderr bytes.Buffer
+	var err error
 
-	// 创建同时写入缓冲区和日志的writer
-	stdoutWriter := io.MultiWriter(&stdout, &logWriter{prefix: fmt.Sprintf("[process:%d:stdout] ", process.ID), level: "info"})
-	stderrWriter := io.MultiWriter(&stderr, &logWriter{prefix: fmt.Sprintf("[process:%d:stderr] ", process.ID), level: "error"})
-
-	cmd.Stdout = stdoutWriter
-	cmd.Stderr = stderrWriter
-
-	// 执行命令
-	err := cmd.Run()
+	if process.Image != "" {
+		// Execute in container image environment
+		err = executeWithImage(process, username, password, &stdout, &stderr)
+	} else {
+		// Execute directly (original logic)
+		err = executeDirectly(process, &stdout, &stderr)
+	}
 
 	processesMu.Lock()
 	defer processesMu.Unlock()
@@ -65,9 +80,56 @@ func executeProcess(process *Process) {
 
 	if err != nil {
 		process.Status = "failed"
-		log.Error().Err(err).Int64("process_id", process.ID).Msg("Process failed")
+		log.Error().Err(err).Str("process_id", process.ID).Msg("Process failed")
 	} else {
 		process.Status = "completed"
-		log.Info().Int64("process_id", process.ID).Msg("Process completed")
+		log.Info().Str("process_id", process.ID).Msg("Process completed")
 	}
+}
+
+// executeDirectly executes command directly without container isolation
+func executeDirectly(process *Process, stdout, stderr *bytes.Buffer) error {
+	cmd := exec.Command("sh", "-c", process.Command)
+	if process.WorkingDir != "" {
+		cmd.Dir = process.WorkingDir
+	}
+
+	// Create writers that write to both buffer and log
+	stdoutWriter := io.MultiWriter(stdout, &logWriter{prefix: fmt.Sprintf("[process:%s:stdout] ", process.ID), level: "info"})
+	stderrWriter := io.MultiWriter(stderr, &logWriter{prefix: fmt.Sprintf("[process:%s:stderr] ", process.ID), level: "error"})
+
+	cmd.Stdout = stdoutWriter
+	cmd.Stderr = stderrWriter
+
+	return cmd.Run()
+}
+
+// executeWithImage executes command in a container image environment
+func executeWithImage(process *Process, username, password string, stdout, stderr *bytes.Buffer) error {
+	// Prepare image (pull if needed)
+	rootfsTar, err := PrepareImage(process.Image, username, password)
+	if err != nil {
+		return fmt.Errorf("failed to prepare image: %w", err)
+	}
+
+	process.RootfsPath = rootfsTar
+
+	// Create process directory
+	processDir := filepath.Join(getDirData(), "processes", process.ID)
+
+	// Create writers that write to both buffer and log
+	stdoutWriter := io.MultiWriter(stdout, &logWriter{prefix: fmt.Sprintf("[process:%s:stdout] ", process.ID), level: "info"})
+	stderrWriter := io.MultiWriter(stderr, &logWriter{prefix: fmt.Sprintf("[process:%s:stderr] ", process.ID), level: "error"})
+
+	// Execute in chroot
+	err = ExecuteInChroot(rootfsTar, processDir, process.Command, process.WorkingDir, stdoutWriter, stderrWriter)
+
+	// Cleanup if configured
+	if shouldCleanup() {
+		if removeErr := os.RemoveAll(processDir); removeErr != nil {
+			log.Warn().Err(removeErr).Str("path", processDir).Msg("Failed to cleanup process directory")
+		}
+	}
+
+	return err
 }

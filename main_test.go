@@ -20,7 +20,10 @@ func setupTest(t *testing.T) {
 	// 重置全局变量
 	processesMu.Lock()
 	processes = []*Process{}
+	processCounter = 0
 	processesMu.Unlock()
+	// Reset instance ID for consistent test results
+	ResetInstanceID()
 }
 
 func TestHandleCreateProcess(t *testing.T) {
@@ -74,11 +77,11 @@ func TestHandleCreateProcess(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, w.Code)
 
 			if tt.expectID {
-				var response map[string]int64
+				var response map[string]string
 				err := json.NewDecoder(w.Body).Decode(&response)
 				assert.NoError(t, err)
 				assert.Contains(t, response, "id")
-				assert.Greater(t, response["id"], int64(0))
+				assert.NotEmpty(t, response["id"])
 			}
 
 			if tt.expectError {
@@ -95,8 +98,8 @@ func TestHandleListProcesses(t *testing.T) {
 	setupTest(t)
 
 	// 创建一些测试进程
-	process1 := &Process{ID: 1, Command: "echo test1", WorkingDir: "/tmp", Status: "completed", Output: "test1\n"}
-	process2 := &Process{ID: 2, Command: "echo test2", WorkingDir: "/home", Status: "running"}
+	process1 := &Process{ID: "test_1", Command: "echo test1", WorkingDir: "/tmp", Status: "completed", Output: "test1\n"}
+	process2 := &Process{ID: "test_2", Command: "echo test2", WorkingDir: "/home", Status: "running"}
 
 	processesMu.Lock()
 	processes = append(processes, process1, process2)
@@ -116,23 +119,23 @@ func TestHandleListProcesses(t *testing.T) {
 	assert.Len(t, response, 2)
 
 	// 检查返回的进程（顺序可能不同）
-	foundIDs := make(map[int64]bool)
+	foundIDs := make(map[string]bool)
 	for _, p := range response {
 		foundIDs[p.ID] = true
-		assert.Contains(t, []int64{1, 2}, p.ID)
-		if p.ID == 1 {
+		assert.Contains(t, []string{"test_1", "test_2"}, p.ID)
+		if p.ID == "test_1" {
 			assert.Equal(t, "echo test1", p.Command)
 			assert.Equal(t, "/tmp", p.WorkingDir)
 			assert.Equal(t, "completed", p.Status)
 			assert.Equal(t, "test1\n", p.Output)
-		} else if p.ID == 2 {
+		} else if p.ID == "test_2" {
 			assert.Equal(t, "echo test2", p.Command)
 			assert.Equal(t, "/home", p.WorkingDir)
 			assert.Equal(t, "running", p.Status)
 		}
 	}
-	assert.True(t, foundIDs[1])
-	assert.True(t, foundIDs[2])
+	assert.True(t, foundIDs["test_1"])
+	assert.True(t, foundIDs["test_2"])
 }
 
 func TestHandleProcesses(t *testing.T) {
@@ -219,7 +222,7 @@ func TestExecuteProcess(t *testing.T) {
 			setupTest(t)
 
 			process := &Process{
-				ID:         1,
+				ID:         "test_1",
 				Command:    tt.command,
 				WorkingDir: tt.workingDir,
 				Status:     "running",
@@ -229,7 +232,7 @@ func TestExecuteProcess(t *testing.T) {
 			processes = append(processes, process)
 			processesMu.Unlock()
 
-			executeProcess(process)
+			executeProcess(process, "", "")
 
 			processesMu.RLock()
 			// 现在只有一个进程，它在索引0处
@@ -807,12 +810,12 @@ func TestIntegration(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var createResp map[string]int64
+		var createResp map[string]string
 		json.NewDecoder(resp.Body).Decode(&createResp)
 		resp.Body.Close()
 
 		processID := createResp["id"]
-		assert.Greater(t, processID, int64(0))
+		assert.NotEmpty(t, processID)
 
 		// 等待进程完成
 		time.Sleep(100 * time.Millisecond)
@@ -861,7 +864,8 @@ echo "Entrypoint done"
 	// 测试版本的 startEntrypointProcess 函数
 	testStartEntrypointProcess := func() {
 		processesMu.Lock()
-		id := int64(len(processes) + 1)
+		processCounter++
+		id := fmt.Sprintf("test_%d", processCounter)
 		process := &Process{
 			ID:         id,
 			Command:    entrypointPath,
@@ -872,9 +876,9 @@ echo "Entrypoint done"
 		processesMu.Unlock()
 
 		// 异步执行命令
-		go executeProcess(process)
+		go executeProcess(process, "", "")
 
-		log.Info().Int64("process_id", id).Msg("Started entrypoint process")
+		log.Info().Str("process_id", id).Msg("Started entrypoint process")
 	}
 
 	// 调用函数
@@ -972,7 +976,7 @@ func TestProcessOutputLogging(t *testing.T) {
 
 	// 测试多行输出的进程
 	process := &Process{
-		ID:         1,
+		ID:         "test_1",
 		Command:    "echo 'Line 1'; echo 'Line 2'; echo 'Error message' >&2; echo 'Line 3'",
 		WorkingDir: "",
 		Status:     "running",
@@ -982,7 +986,7 @@ func TestProcessOutputLogging(t *testing.T) {
 	processes = append(processes, process)
 	processesMu.Unlock()
 
-	executeProcess(process)
+	executeProcess(process, "", "")
 
 	processesMu.RLock()
 	result := processes[0]
