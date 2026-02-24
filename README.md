@@ -14,7 +14,7 @@
 启动命令设置为
 
 ```sh
-wget https://github.com/117503445/fc-entrypoint/releases/latest -O /tmp/fc-entrypoint && chmod +x /tmp/fc-entrypoint && /tmp/fc-entrypoint
+bash -c 'wget https://github.com/117503445/fc-entrypoint/releases/latest/download/fc-entrypoint -O /tmp/fc-entrypoint && chmod +x /tmp/fc-entrypoint && /tmp/fc-entrypoint'
 ```
 
 端口设置为 9000
