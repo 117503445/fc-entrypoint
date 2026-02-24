@@ -58,7 +58,6 @@ jobs:
           tag_name: ${{ needs.build.outputs.short_sha }}
           name: Release ${{ needs.build.outputs.short_sha }}
           generate_release_notes: true
-          draft: true
           files: fc-entrypoint
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
