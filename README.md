@@ -1,42 +1,96 @@
 # fc-entrypoint
 
-一个轻量的HTTP服务器，用于管理进程并转发请求到localhost:8000。
+一个用于 Function Compute 的入口点代理服务，支持进程管理和请求转发。
 
 ## 功能特性
 
-- 监听9000端口，提供HTTP API用于管理进程
-- 将所有其他请求转发到localhost:8000
-- 支持实时日志输出
+- **反向代理**: 将 9000 端口的请求转发到 8000 端口
+- **进程管理**: 提供 REST API 管理后台进程
+- **自动执行**: 支持自动运行 `/entrypoint.sh` 脚本
+- **日志输出**: 实时输出进程的标准输出和错误输出
 
-## 新增功能：端口等待开关
+## 快速开始
 
-从最新版本开始，支持通过环境变量控制9000端口的启动行为。
-
-### 配置选项
-
-- **环境变量**: `WAIT_FOR_PORT_8000`
-- **默认值**: `true` (开启)
-- **可选值**: `true` 或 `false`
-
-### 行为说明
-
-#### 开关开启时 (`WAIT_FOR_PORT_8000=true`，默认)
-- 程序启动时不立即监听9000端口
-- 启动背景进程每秒检查8000端口是否被其他进程监听
-- 当8000端口被监听时，自动开始监听9000端口
-
-#### 开关关闭时 (`WAIT_FOR_PORT_8000=false`)
-- 保持原有逻辑，程序启动时立即监听9000端口
-
-### 使用示例
+### 本地运行
 
 ```bash
-# 使用默认行为（等待8000端口）
+# 编译
+go build -o fc-entrypoint main.go
+
+# 运行（默认等待 8000 端口可用）
 ./fc-entrypoint
 
-# 显式开启等待功能
-WAIT_FOR_PORT_8000=true ./fc-entrypoint
-
-# 关闭等待功能，直接启动9000端口
-WAIT_FOR_PORT_8000=false ./fc-entrypoint
+# 跳过等待 8000 端口
+SKIP_WAIT_FOR_PORT_8000=1 ./fc-entrypoint
 ```
+
+### Docker 使用
+
+```dockerfile
+FROM golang:1.25 AS builder
+WORKDIR /app
+COPY . .
+RUN go build -o fc-entrypoint main.go
+
+FROM alpine:latest
+WORKDIR /app
+COPY --from=builder /app/fc-entrypoint .
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
+EXPOSE 9000
+CMD ["./fc-entrypoint"]
+```
+
+## API 接口
+
+### 列出所有进程
+
+```bash
+curl http://localhost:9000/_entrypoint/processes
+```
+
+响应示例:
+```json
+[
+  {
+    "id": 1,
+    "command": "/entrypoint.sh",
+    "working_dir": "/",
+    "status": "running",
+    "output": "",
+    "error": ""
+  }
+]
+```
+
+### 创建新进程
+
+```bash
+curl -X POST http://localhost:9000/_entrypoint/processes \
+  -H "Content-Type: application/json" \
+  -d '{"command": "your-command", "working_dir": "/path/to/dir"}'
+```
+
+响应示例:
+```json
+{"id": 2}
+```
+
+## 环境变量
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `SKIP_WAIT_FOR_PORT_8000` | 跳过等待 8000 端口 | `""` (默认等待) |
+
+## 工作原理
+
+1. 服务启动时默认等待 8000 端口可用
+2. 在 9000 端口启动 HTTP 服务
+3. 如果存在 `/entrypoint.sh`，自动执行
+4. 所有请求转发到 `localhost:8000`
+5. 提供进程管理 API 用于监控和控制后台进程
+
+## 许可证
+
+MIT License
