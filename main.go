@@ -82,8 +82,8 @@ func main() {
 	goutils.InitZeroLog()
 
 	// 读取开关环境变量，默认为打开
-
-	isWaitForPort8000 := os.Getenv("SKIP_WAIT_FOR_PORT_8000") != ""
+	isWaitForPort8000 := os.Getenv("SKIP_WAIT_FOR_PORT_8000") == ""
+	log.Info().Bool("isWaitForPort8000", isWaitForPort8000).Send()
 	if isWaitForPort8000 {
 		go waitForPort8000AndStartServer()
 	} else {
