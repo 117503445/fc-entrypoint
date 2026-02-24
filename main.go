@@ -91,11 +91,15 @@ func main() {
 	}
 
 	// 检查并启动 entrypoint.sh 进程
-	if _, err := os.Stat("/entrypoint.sh"); err == nil {
-		log.Info().Msg("Found /entrypoint.sh, starting as process")
-		startEntrypointProcess()
+	entrypointPath := os.Getenv("ENTRYPOINT_SCRIPT")
+	if entrypointPath == "" {
+		entrypointPath = "/entrypoint.sh"
+	}
+	if _, err := os.Stat(entrypointPath); err == nil {
+		log.Info().Str("path", entrypointPath).Msg("Found entrypoint script, starting as process")
+		startEntrypointProcess(entrypointPath)
 	} else {
-		log.Info().Msg("/entrypoint.sh not found, skipping")
+		log.Info().Str("path", entrypointPath).Msg("Entrypoint script not found, skipping")
 	}
 
 	select {}
@@ -120,9 +124,9 @@ func createProcess(command, workingDir string) int64 {
 	return id
 }
 
-func startEntrypointProcess() {
-	id := createProcess("/entrypoint.sh", "/")
-	log.Info().Int64("process_id", id).Msg("Started entrypoint process")
+func startEntrypointProcess(entrypointPath string) {
+	id := createProcess(entrypointPath, "/")
+	log.Info().Int64("process_id", id).Str("path", entrypointPath).Msg("Started entrypoint process")
 }
 
 func handleProcesses(w http.ResponseWriter, r *http.Request) {
