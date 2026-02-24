@@ -11,36 +11,28 @@
 
 ## 快速开始
 
-### 本地运行
+启动命令设置为
 
-```bash
-# 编译
-go build -o fc-entrypoint main.go
-
-# 运行（默认等待 8000 端口可用）
-./fc-entrypoint
-
-# 跳过等待 8000 端口
-SKIP_WAIT_FOR_PORT_8000=1 ./fc-entrypoint
+```sh
+wget https://github.com/117503445/fc-entrypoint/releases/latest -O /tmp/fc-entrypoint && chmod +x /tmp/fc-entrypoint && /tmp/fc-entrypoint
 ```
 
-### Docker 使用
+端口设置为 9000
 
-```dockerfile
-FROM golang:1.25 AS builder
-WORKDIR /app
-COPY . .
-RUN go build -o fc-entrypoint main.go
+## 工作原理
 
-FROM alpine:latest
-WORKDIR /app
-COPY --from=builder /app/fc-entrypoint .
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
+1. 服务启动时默认等待 8000 端口可用
+2. 在 9000 端口启动 HTTP 服务
+3. 如果存在入口点脚本（由 `ENTRYPOINT_SCRIPT` 环境变量指定），自动执行
+4. 所有请求转发到 `localhost:8000`
+5. 提供进程管理 API 用于监控和控制后台进程
 
-EXPOSE 9000
-CMD ["./fc-entrypoint"]
-```
+## 环境变量
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `SKIP_WAIT_FOR_PORT_8000` | 跳过等待 8000 端口 | `""` (默认等待) |
+| `ENTRYPOINT_SCRIPT` | 入口点脚本路径 | `/entrypoint.sh` |
 
 ## API 接口
 
@@ -76,22 +68,3 @@ curl -X POST http://localhost:9000/_entrypoint/processes \
 ```json
 {"id": 2}
 ```
-
-## 环境变量
-
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `SKIP_WAIT_FOR_PORT_8000` | 跳过等待 8000 端口 | `""` (默认等待) |
-| `ENTRYPOINT_SCRIPT` | 入口点脚本路径 | `/entrypoint.sh` |
-
-## 工作原理
-
-1. 服务启动时默认等待 8000 端口可用
-2. 在 9000 端口启动 HTTP 服务
-3. 如果存在入口点脚本（由 `ENTRYPOINT_SCRIPT` 环境变量指定），自动执行
-4. 所有请求转发到 `localhost:8000`
-5. 提供进程管理 API 用于监控和控制后台进程
-
-## 许可证
-
-MIT License
