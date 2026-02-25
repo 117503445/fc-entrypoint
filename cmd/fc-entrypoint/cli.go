@@ -5,7 +5,7 @@ import (
 )
 
 var cli struct {
-	Serve CmdServe `cmd:"" help:"Start the entrypoint server"`
+	Serve CmdServe `cmd:"serve" default:"true" help:"Start the entrypoint server"`
 }
 
 type CmdServe struct {
