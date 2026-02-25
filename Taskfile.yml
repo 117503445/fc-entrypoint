@@ -24,3 +24,13 @@ tasks:
     deps: [pre]
     cmds:
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./data/fc-entrypoint ./cmd/fc-entrypoint
+  tunnel:
+    desc: "Run the SSH tunnel client"
+    deps: [pre]
+    cmds:
+      - go run ./cmd/fc-entrypoint-tunnel {{.CLI_ARGS}}
+  build:tunnel:
+    desc: "Build the tunnel client binary"
+    deps: [pre]
+    cmds:
+      - CGO_ENABLED=0 go build -o ./data/fc-entrypoint-tunnel ./cmd/fc-entrypoint-tunnel

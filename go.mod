@@ -6,6 +6,7 @@ require (
 	github.com/117503445/goutils v0.0.0-20260213062430-ac8ec6a13843
 	github.com/117503445/sshdev v0.0.0
 	github.com/alecthomas/kong v1.13.0
+	github.com/coder/websocket v1.8.14
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.19.0
