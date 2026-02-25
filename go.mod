@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/117503445/goutils v0.0.0-20260213062430-ac8ec6a13843
-	github.com/117503445/sshdev v0.0.0
+	github.com/117503445/sshdev v0.0.0-20260225090614-8547d89e077b
 	github.com/alecthomas/kong v1.13.0
 	github.com/coder/websocket v1.8.14
 	github.com/rs/zerolog v1.34.0
@@ -22,5 +22,3 @@ require (
 	golang.org/x/sys v0.41.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/117503445/sshdev => /workspace/project/sshdev

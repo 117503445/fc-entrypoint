@@ -1,5 +1,7 @@
 github.com/117503445/goutils v0.0.0-20260213062430-ac8ec6a13843 h1:BAJuOh6cSs7mStPNTVpK5xkX6UqWD0ywTmx6YUV3t8M=
 github.com/117503445/goutils v0.0.0-20260213062430-ac8ec6a13843/go.mod h1:N2ZClEkGbOiPAUmVbgjEhj8g2aMwrXfW7UqDHQpv8rQ=
+github.com/117503445/sshdev v0.0.0-20260225090614-8547d89e077b h1:XezD0ebbox2lTbbAOUZmRouWnMka0NhAKWY0d4A2Sa0=
+github.com/117503445/sshdev v0.0.0-20260225090614-8547d89e077b/go.mod h1:JQwZ5i2KhQw5KdOyCoox7mFfxxr3VCVfrdlWAtcElNM=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=
 github.com/alecthomas/assert/v2 v2.11.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/kong v1.13.0 h1:5e/7XC3ugvhP1DQBmTS+WuHtCbcv44hsohMgcvVxSrA=
