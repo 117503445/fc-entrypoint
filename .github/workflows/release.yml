@@ -31,14 +31,26 @@ jobs:
       - name: Make executable
         run: chmod +x data/fc-entrypoint
 
-      - name: Create tag
-        run: git tag ${{ github.sha }}
+      - name: Get git commit
+        id: sha
+        run: echo "SHA_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Push tag
-        run: git push origin ${{ github.sha }}
-
-      - name: Upload Release
+      - name: Install gh CLI
         run: |
-          gh release create ${{ github.sha }} --title "Release ${{ github.sha }}" --generate-notes data/fc-entrypoint
+          wget https://github.com/cli/cli/releases/download/v2.83.2/gh_2.83.2_linux_amd64.tar.gz
+          tar -xzf gh_2.83.2_linux_amd64.tar.gz
+          mv gh_2.83.2_linux_amd64/bin/gh /usr/local/bin/
+
+      - name: Create release
+        run: |
+          gh release create ${{ steps.sha.outputs.SHA_SHORT }} \
+            --title "Release ${{ steps.sha.outputs.SHA_SHORT }}" \
+            --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release assets
+        run: |
+          gh release upload ${{ steps.sha.outputs.SHA_SHORT }} "data/fc-entrypoint" --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
