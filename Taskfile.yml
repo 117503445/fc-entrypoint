@@ -34,3 +34,4 @@ tasks:
     deps: [pre]
     cmds:
       - CGO_ENABLED=0 go build -o ./data/fc-entrypoint-tunnel ./cmd/fc-entrypoint-tunnel
+      - CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./data/fc-entrypoint-tunnel.exe ./cmd/fc-entrypoint-tunnel
