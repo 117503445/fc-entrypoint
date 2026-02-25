@@ -32,7 +32,6 @@ go.work.sum
 # .vscode/
 
 p.md
-fc-entrypoint
 main
-
 data
+/fc-entrypoint
