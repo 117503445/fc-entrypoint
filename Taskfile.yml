@@ -1,16 +1,26 @@
-version: '3'
+version: 3
 
 tasks:
   default:
-    desc: "The default task" 
-    deps: [pre]
+    desc: "The default task"
+    deps: ["pre"]
     cmds:
-      - go run .
+      - task: run:serve
   pre:
     run: once
     cmds:
-      - clear
+      - clear || true
   test:
     deps: [pre]
     cmds:
       - go test . -v
+  serve:
+    desc: "Run the entrypoint server"
+    deps: [pre]
+    cmds:
+      - go run ./cmd/fc-entrypoint serve
+  build:
+    desc: "Build the entrypoint binary"
+    deps: [pre]
+    cmds:
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./data/fc-entrypoint ./cmd/fc-entrypoint
