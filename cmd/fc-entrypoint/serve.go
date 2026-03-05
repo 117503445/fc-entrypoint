@@ -26,7 +26,7 @@ func RunServe(cmd *CmdServe) error {
 	os.Setenv("DIR_DATA", cmd.DirData)
 	os.Setenv("CLEANUP_PROCESS_DIR", boolToEnv(cmd.CleanupProcessDir))
 
-	// Start SSH dev server on port 22222
+	// Start SSH dev server on port 2222
 	if err := StartSSHDev(ctx, cmd.DirData); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Msg("Failed to start SSH dev server, continuing anyway")
 	}
@@ -149,7 +149,7 @@ func handleListProcesses(ctx context.Context, w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(processList)
 }
 
-// handleSSHWebSocket handles WebSocket connections and proxies them to local SSH port 22222
+// handleSSHWebSocket handles WebSocket connections and proxies them to local SSH port 2222
 func handleSSHWebSocket(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	// Accept WebSocket connection
 	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -163,8 +163,8 @@ func handleSSHWebSocket(ctx context.Context, w http.ResponseWriter, r *http.Requ
 
 	log.Ctx(ctx).Info().Msg("WebSocket connection accepted, connecting to SSH server")
 
-	// Connect to local SSH server on port 22222
-	sshConn, err := net.Dial("tcp", "localhost:22222")
+	// Connect to local SSH server on port 2222
+	sshConn, err := net.Dial("tcp", "localhost:2222")
 	if err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("Failed to connect to SSH server")
 		wsConn.Close(websocket.StatusInternalError, "Failed to connect to SSH server")

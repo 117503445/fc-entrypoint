@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -72,7 +73,7 @@ func TestHandleCreateProcess(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 
-			handleCreateProcess(w, req)
+			handleCreateProcess(context.Background(), w, req)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
 
@@ -108,7 +109,7 @@ func TestHandleListProcesses(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/_entrypoint/processes", nil)
 	w := httptest.NewRecorder()
 
-	handleListProcesses(w, req)
+	handleListProcesses(context.Background(), w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
@@ -147,7 +148,7 @@ func TestHandleProcesses(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		handleProcesses(w, req)
+		handleProcesses(context.Background(), w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
@@ -156,7 +157,7 @@ func TestHandleProcesses(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/_entrypoint/processes", nil)
 		w := httptest.NewRecorder()
 
-		handleProcesses(w, req)
+		handleProcesses(context.Background(), w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
@@ -165,7 +166,7 @@ func TestHandleProcesses(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPut, "/_entrypoint/processes", nil)
 		w := httptest.NewRecorder()
 
-		handleProcesses(w, req)
+		handleProcesses(context.Background(), w, req)
 
 		assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
 
@@ -232,7 +233,7 @@ func TestExecuteProcess(t *testing.T) {
 			processes = append(processes, process)
 			processesMu.Unlock()
 
-			executeProcess(process, "", "")
+			executeProcess(context.Background(), process, "", "")
 
 			processesMu.RLock()
 			// 现在只有一个进程，它在索引0处
@@ -790,9 +791,9 @@ func TestIntegration(t *testing.T) {
 	// 创建测试服务器
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/_entrypoint/processes" {
-			handleProcesses(w, r)
+			handleProcesses(context.Background(), w, r)
 		} else {
-			reverseProxyHandler(w, r)
+			reverseProxyHandler(context.Background(), w, r)
 		}
 	}))
 	defer server.Close()
@@ -876,7 +877,7 @@ echo "Entrypoint done"
 		processesMu.Unlock()
 
 		// 异步执行命令
-		go executeProcess(process, "", "")
+		go executeProcess(context.Background(), process, "", "")
 
 		log.Info().Str("process_id", id).Msg("Started entrypoint process")
 	}
@@ -935,7 +936,7 @@ echo "Main entrypoint test"
 
 func TestCheckPort(t *testing.T) {
 	// 测试未被监听的端口
-	assert.False(t, checkPort(9999))
+	assert.False(t, checkPort(context.Background(), 9999))
 
 	// 启动一个测试服务器在9998端口
 	server := &http.Server{Addr: ":9998"}
@@ -950,7 +951,7 @@ func TestCheckPort(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 测试被监听的端口
-	assert.True(t, checkPort(9998))
+	assert.True(t, checkPort(context.Background(), 9998))
 }
 
 func TestWaitForPort8000Switch(t *testing.T) {
@@ -986,7 +987,7 @@ func TestProcessOutputLogging(t *testing.T) {
 	processes = append(processes, process)
 	processesMu.Unlock()
 
-	executeProcess(process, "", "")
+	executeProcess(context.Background(), process, "", "")
 
 	processesMu.RLock()
 	result := processes[0]

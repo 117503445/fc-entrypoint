@@ -98,7 +98,7 @@ func executeDirectly(ctx context.Context, process *Process, stdout, stderr *byte
 
 	// Create writers that write to both buffer and log
 	stdoutWriter := io.MultiWriter(stdout, &logWriter{prefix: fmt.Sprintf("[process:%s:stdout] ", process.ID), level: "info"})
-	stderrWriter := io.MultiWriter(stderr, &logWriter{prefix: fmt.Sprintf("[process:%s:stderr] ", process.ID), level: "error"})
+	stderrWriter := io.MultiWriter(stdout, &logWriter{prefix: fmt.Sprintf("[process:%s:stderr] ", process.ID), level: "error"})
 
 	cmd.Stdout = stdoutWriter
 	cmd.Stderr = stderrWriter

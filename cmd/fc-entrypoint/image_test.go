@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -108,14 +109,14 @@ func TestProcessIDFormat(t *testing.T) {
 	ResetInstanceID()
 
 	// Create a process
-	id := createProcess(ProcessRequest{Command: "echo test", WorkingDir: ""})
+	id := createProcess(context.Background(), ProcessRequest{Command: "echo test", WorkingDir: ""})
 
 	// ID should be in format instanceid_processid
 	assert.True(t, strings.HasPrefix(id, "test-instance_"))
 	assert.Equal(t, "test-instance_1", id)
 
 	// Create another process
-	id2 := createProcess(ProcessRequest{Command: "echo test2", WorkingDir: ""})
+	id2 := createProcess(context.Background(), ProcessRequest{Command: "echo test2", WorkingDir: ""})
 	assert.Equal(t, "test-instance_2", id2)
 
 	// Wait for processes to complete
@@ -289,7 +290,7 @@ func TestExtractTar(t *testing.T) {
 
 	// Extract
 	destDir := filepath.Join(tmpDir, "extracted")
-	err = extractTar(tarPath, destDir)
+	err = extractTar(context.Background(), tarPath, destDir)
 	assert.NoError(t, err)
 
 	// Verify extracted files
