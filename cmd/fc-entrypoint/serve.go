@@ -40,7 +40,7 @@ func RunServe(cmd *CmdServe) error {
 	// Check and start entrypoint.sh process
 	if _, err := os.Stat(cmd.EntrypointScriptPath); err == nil {
 		log.Ctx(ctx).Info().Str("path", cmd.EntrypointScriptPath).Msg("Found entrypoint script, starting as process")
-		go startEntrypointProcess(cmd.EntrypointScriptPath)
+		go startEntrypointProcess(ctx, cmd.EntrypointScriptPath)
 	} else {
 		log.Ctx(ctx).Info().Str("path", cmd.EntrypointScriptPath).Msg("Entrypoint script not found, skipping")
 	}

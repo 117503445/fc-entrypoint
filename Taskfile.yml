@@ -5,7 +5,7 @@ tasks:
     desc: "The default task"
     deps: ["pre"]
     cmds:
-      - task: run:serve
+      - task: serve
   pre:
     run: once
     cmds:

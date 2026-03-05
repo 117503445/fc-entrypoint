@@ -18,6 +18,10 @@
 bash -c 'wget https://github.com/117503445/fc-entrypoint/releases/latest/download/fc-entrypoint -O /tmp/fc-entrypoint && chmod +x /tmp/fc-entrypoint && /tmp/fc-entrypoint'
 ```
 
+```sh
+bash -c 'wget https://ghfast.top/https://github.com/117503445/fc-entrypoint/releases/latest/download/fc-entrypoint -O /tmp/fc-entrypoint && chmod +x /tmp/fc-entrypoint && /tmp/fc-entrypoint'
+```
+
 端口设置为 9000
 
 ## 工作原理

@@ -56,9 +56,7 @@ func createProcess(ctx context.Context, req ProcessRequest) string {
 	return id
 }
 
-func startEntrypointProcess(entrypointPath string) {
-	ctx := context.Background()
-	ctx = log.Logger.WithContext(ctx)
+func startEntrypointProcess(ctx context.Context, entrypointPath string) {
 	id := createProcess(ctx, ProcessRequest{Command: entrypointPath, WorkingDir: "/"})
 	log.Ctx(ctx).Info().Str("process_id", id).Str("path", entrypointPath).Msg("Started entrypoint process")
 }
@@ -96,6 +94,7 @@ func executeDirectly(ctx context.Context, process *Process, stdout, stderr *byte
 	if process.WorkingDir != "" {
 		cmd.Dir = process.WorkingDir
 	}
+	cmd.Env = os.Environ()
 
 	// Create writers that write to both buffer and log
 	stdoutWriter := io.MultiWriter(stdout, &logWriter{prefix: fmt.Sprintf("[process:%s:stdout] ", process.ID), level: "info"})
